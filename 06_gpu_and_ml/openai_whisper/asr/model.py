@@ -13,12 +13,6 @@ WHISPER_OUTPUT_DIR = f"whisper_large_v3_weights_{WEIGHT_ONLY_PRECISION}"
 WHISPER_CHECKPOINT_DIR= f"whisper_large_v3_{WEIGHT_ONLY_PRECISION}"
 
 
-LLAMA_MODEL_DIR = "/root/model/model_input"
-LLAMA_MODEL_ID = "NousResearch/Meta-Llama-3-8B-Instruct"
-LLAMA_MODEL_REVISION = "b1532e4dee724d9ba63fe17496f298254d87ca64"  # pin model revisions to prevent unexpected changes!
-LLAMA_CHECKPOINT_SCRIPT_URL = f"https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/examples/llama/convert_checkpoint.py"
-LLAMA_CKPT_DIR = "llama_3_8b_weights"
-LLAMA_OUTPUT_DIR = "llama_3_8b"
 MAX_INPUT_LEN = 256
 SIZE_ARGS = f"--max_batch_size={MAX_BATCH_SIZE} --max_input_len={MAX_INPUT_LEN}"
 DTYPE = "float16"
@@ -27,7 +21,7 @@ PLUGIN_ARGS = f"--gemm_plugin={DTYPE} --gpt_attention_plugin={DTYPE}"
 
 
 N_GPUS = 1
-GPU_CONFIG = modal.gpu.H100(count=N_GPUS)
+GPU_CONFIG = modal.gpu.A100(count=N_GPUS)
 DTYPE = "float16"
 
 def setup_logger():
@@ -46,25 +40,11 @@ def setup_logger():
 
 logger = setup_logger()
 
-def download_llama_model():
-    import os
-
-    from huggingface_hub import snapshot_download
-    from transformers.utils import move_cache
-
-    os.makedirs(LLAMA_MODEL_DIR, exist_ok=True)
-    snapshot_download(
-        LLAMA_MODEL_ID,
-        local_dir=LLAMA_MODEL_DIR,
-        ignore_patterns=["*.pt", "*.bin"],  # using safetensors
-        revision=LLAMA_MODEL_REVISION,
-    )
-    move_cache()
-
 image = (
     Image.from_registry(
         "nvidia/cuda:12.1.1-devel-ubuntu22.04",
-        add_python="3.10"
+        add_python="3.10",
+        force_build=True
     )
     .apt_install(
       "openmpi-bin",
@@ -90,18 +70,12 @@ image = (
         "wget --directory-prefix=whisper_scripts https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/examples/whisper/requirements.txt",
         "wget --directory-prefix=whisper_scripts https://raw.githubusercontent.com/NVIDIA/TensorRT-LLM/main/examples/whisper/tokenizer.py",
         
-        f"wget --directory-prefix=llama_scripts {LLAMA_CHECKPOINT_SCRIPT_URL}",
         "pip install -r whisper_scripts/requirements.txt"
     ])
     .pip_install(  # add utilities for downloading the model
         "hf-transfer==0.1.6",
         "requests~=2.31.0",
     )
-    .run_function(  # download the model
-        download_llama_model,
-        timeout=20 * 60,
-    )
-    # .copy_local_file("convert_checkpoint.py")
     .run_commands(
         [
             f"python whisper_scripts/convert_checkpoint.py \
@@ -109,12 +83,6 @@ image = (
                 --weight_only_precision {WEIGHT_ONLY_PRECISION} \
                 --output_dir {WHISPER_CHECKPOINT_DIR}"
         ], gpu=GPU_CONFIG,
-    )
-    .run_commands(
-        [
-            f"python llama_scripts/convert_checkpoint.py --model_dir={LLAMA_MODEL_DIR} --output_dir={LLAMA_CKPT_DIR}"
-            + f" --tp_size={N_GPUS} --dtype={DTYPE}"
-        ], gpu=GPU_CONFIG
     )
     .run_commands(
         [
@@ -149,15 +117,6 @@ image = (
                   --gpt_attention_plugin {INFERENCE_PRECISION} \
                   --remove_input_padding disable"
         ], gpu=GPU_CONFIG,
-    )
-    .run_commands(  # takes ~5 minutes
-        [
-            f"trtllm-build --checkpoint_dir {LLAMA_CKPT_DIR} --output_dir {LLAMA_OUTPUT_DIR}"
-            + f" --tp_size={N_GPUS} --workers={N_GPUS}"
-            + f" {SIZE_ARGS}"
-            + f" {PLUGIN_ARGS}"
-        ],
-        gpu=GPU_CONFIG,  # TRT-LLM compilation is GPU-specific, so make sure this matches production!
     ).env(  # show more log information from the inference engine
         {"TLLM_LOG_LEVEL": "INFO"}
     )
@@ -246,58 +205,9 @@ class Model:
                 self.whisper_model,
                 mel_filters_dir=self.assets_dir,
             )
-            result_sentence = results[0][2] 
-
-            settings = dict(
-                temperature=0.1,  # temperature 0 not allowed, so we set top_k to 1 to get the same effect
-                top_k=1,
-                stop_words_list=None,
-                repetition_penalty=1.1,
-            )
-
-            settings["end_id"] = self.end_id
-            settings["pad_id"] = self.pad_id
-
-            parsed_prompt = self.tokenizer.apply_chat_template(
-                    [{"role": "user", "content": f"Please translate the following text into Spanish: {result_sentence}"}],
-                    add_generation_prompt=True,
-                    tokenize=False,
-                )
-            
-            inputs_t = self.tokenizer(
-                [parsed_prompt], return_tensors="pt", padding=True, truncation=False
-            )["input_ids"]
-            
-            outputs_t = self.llama_model.generate(inputs_t, **settings)
-
-            outputs_text = self.tokenizer.batch_decode(
-                    outputs_t[:, 0]
-                )  # only one output per input, so we index with 0
-
-            responses = [
-                extract_assistant_response(output_text)
-                for output_text in outputs_text
-            ]
+            result_sentence = results[0][2]
             print(f"Left predict at {time.monotonic()}")
-            return responses[0]
+            return result_sentence
         
 
         return webapp
-
-def extract_assistant_response(output_text):
-    """Model-specific code to extract model responses.
-
-    See this doc for LLaMA 3: https://llama.meta.com/docs/model-cards-and-prompt-formats/meta-llama-3/."""
-    # Split the output text by the assistant header token
-    parts = output_text.split("<|start_header_id|>assistant<|end_header_id|>")
-
-    if len(parts) > 1:
-        # Join the parts after the first occurrence of the assistant header token
-        response = parts[1].split("<|eot_id|>")[0].strip()
-
-        # Remove any remaining special tokens and whitespace
-        response = response.replace("<|eot_id|>", "").strip()
-
-        return response
-    else:
-        return output_text

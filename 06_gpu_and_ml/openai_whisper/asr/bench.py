@@ -7,9 +7,9 @@ import time
 URL = "https://modal-labs--faster-v2-model-web.modal.run"
 
 AUDIO_FILES = {
-    "thirty": "wavs/thirty.wav",
-    "short": "wavs/short.wav",
-    "preamble": "wavs/preamble.wav",
+    "thirty": "wavs/thirty_compressed.wav",
+    # "short": "wavs/short.wav",
+    # "preamble": "wavs/preamble.wav",
     "long": "wavs/long.wav"
 }
 
