@@ -21,7 +21,7 @@ PLUGIN_ARGS = f"--gemm_plugin={DTYPE} --gpt_attention_plugin={DTYPE}"
 
 
 N_GPUS = 1
-GPU_CONFIG = modal.gpu.A100(count=N_GPUS)
+GPU_CONFIG = modal.gpu.H100(count=N_GPUS)
 DTYPE = "float16"
 
 def setup_logger():
@@ -147,30 +147,6 @@ class Model:
             normalizer=normalizer,
             mel_filters_dir=self.assets_dir,
         )
-
-
-        import tensorrt_llm
-        from tensorrt_llm.runtime import ModelRunner
-        from transformers import AutoTokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(LLAMA_MODEL_ID)
-        # LLaMA models do not have a padding token, so we use the EOS token
-        self.tokenizer.add_special_tokens(
-            {"pad_token": self.tokenizer.eos_token}
-        )
-        # and then we add it from the left, to minimize impact on the output
-        self.tokenizer.padding_side = "left"
-        self.pad_id = self.tokenizer.pad_token_id
-        self.end_id = self.tokenizer.eos_token_id
-
-        runner_kwargs = dict(
-            engine_dir=f"/{LLAMA_OUTPUT_DIR}",
-            lora_dir=None,
-            rank=tensorrt_llm.mpi_rank(),  # this will need to be adjusted to use multiple GPUs
-        )
-
-        self.llama_model = ModelRunner.from_dir(**runner_kwargs)
-
- 
 
     @modal.asgi_app()
     def web(self):
