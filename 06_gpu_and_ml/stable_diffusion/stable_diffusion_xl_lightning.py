@@ -1,6 +1,6 @@
 # ---
 # output-directory: "/tmp/stable-diffusion-xl-lightning"
-# tags: ["use-case-image-video-3d"]
+# tags: ["use-case-image-video-3d", "use-case-text-image"]
 # ---
 # # Run SDXL Lightning on Modal
 #

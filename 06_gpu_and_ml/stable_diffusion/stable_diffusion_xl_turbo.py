@@ -2,7 +2,7 @@
 # output-directory: "/tmp/stable-diffusion-xl-turbo"
 # args: []
 # runtimes: ["runc", "gvisor"]
-# tags: ["use-case-image-video-3d"]
+# tags: ["use-case-image-video-3d", "use-case-text-image"]
 # ---
 # # Stable Diffusion XL Turbo Image-to-image
 #

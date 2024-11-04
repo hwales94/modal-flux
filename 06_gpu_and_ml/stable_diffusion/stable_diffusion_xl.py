@@ -2,7 +2,7 @@
 # output-directory: "/tmp/stable-diffusion-xl"
 # args: ["--prompt", "An astronaut riding a green horse"]
 # runtimes: ["runc", "gvisor"]
-# tags: ["use-case-image-video-3d"]
+# tags: ["use-case-image-video-3d", "use-case-text-image"]
 # ---
 # # Stable Diffusion XL 1.0
 #
